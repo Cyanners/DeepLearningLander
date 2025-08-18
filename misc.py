@@ -137,7 +137,7 @@ class LanderObj:
 
     def thrust_up(self):
         self.vy -= self.thrust_v
-        self.fuel -= 0.1
+        self.fuel -= 0.25
         pvx = random.uniform(-0.5, 0.5)
         pvy = random.uniform(3, 4.5)
         self.spawn_particle(0, 12, pvx, pvy)
@@ -145,7 +145,7 @@ class LanderObj:
 
     def thrust_left(self):
         self.vx -= self.thrust_h
-        self.fuel -= 0.1
+        self.fuel -= 0.25
         pvx = random.uniform(3, 4.5)
         pvy = random.uniform(-0.5, 0.5)
         self.spawn_particle(15, -8, pvx, pvy)
@@ -153,7 +153,7 @@ class LanderObj:
 
     def thrust_right(self):
         self.vx += self.thrust_h
-        self.fuel -= 0.1
+        self.fuel -= 0.25
         pvx = random.uniform(-3, -4.5)
         pvy = random.uniform(-0.5, 0.5)
         self.spawn_particle(-15, -8, pvx, pvy)

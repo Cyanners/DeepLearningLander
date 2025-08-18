@@ -4,7 +4,9 @@ import random
 from env import LunarLanderEnv
 from dqn import DQNAgent
 
-landed_bool = False
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
 # Toggle between training and replay
 replay = False
@@ -23,8 +25,8 @@ if replay:
     agent.model.eval()  # put network in evaluation mode
 
 
-
-while not landed_bool:
+training_done = False
+while not training_done:
 
     # -----------------------------------------
     # Training Mode
@@ -57,18 +59,6 @@ while not landed_bool:
                     if event.type == pygame.QUIT:
                         running = False
 
-                # # Determine action from keys
-                # keys = pygame.key.get_pressed()
-                # action = 0  # 0 = no thrust, 1 = up, 2 = left, 3 = right
-                # if keys[pygame.K_UP]:
-                #     action = 1
-                # elif keys[pygame.K_LEFT]:
-                #     action = 2
-                # elif keys[pygame.K_RIGHT]:
-                #     action = 3
-
-
-
                 # Select action with DQNAgent
                 action = agent.select_action(state)
 
@@ -84,8 +74,6 @@ while not landed_bool:
 
                 state = next_state
 
-
-
                 if episode % 100 == 12345:
                     env.render(text_wait=True)
                     env.clock.tick(60)
@@ -94,25 +82,21 @@ while not landed_bool:
                 if steps == max_steps:
                     done = True
 
-                if done:
-                    # State: self.x, self.y, self.vx, self.vy, self.terrain_range, self.above_pad
-                    # State: self.vx, self.vy, self.terrain_range, self.above_pad, self.pad_dist_x
-                    print(f"Episode {episode+1}:\t", end="")
-                    if not info['landed'] and not info['crashed']:
-                        print(f"FLYING, Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
-                    elif info['landed']:
-                        print(f"LANDED ({info['landing_accuracy']:.2f}%), Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
-                    elif info['crashed']:
-                        print(f"CRASHED, Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
+            # Single episode done ---------------------------------------------------------------
 
-                    print(f"Rwrd: {total_reward:.2f}, e: {agent.epsilon:.3f}")
-                    # print(f"\tx:{state[0]:.2f}, y:{state[1]:.2f}, vx:{state[2]:.2f}, vy:{state[3]:.2f}")
+            # State: self.x, self.y, self.vx, self.vy, self.terrain_range, self.above_pad
+            # State: self.vx, self.vy, self.terrain_range, self.above_pad, self.pad_dist_x
+            print(f"Episode {episode + 1}:\t", end="")
+            if not info['landed'] and not info['crashed']:
+                print(f"FLYING, Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
+            elif info['landed']:
+                print(f"LANDED ({info['landing_accuracy']:.2f}%), Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
+            elif info['crashed']:
+                print(f"CRASHED, Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
 
-                    if info['landed']:
-                        landed_bool = True
-                        break
+            print(f"Rwrd: {total_reward:.2f}, e: {agent.epsilon:.3f}")
 
-            if landed_bool:
+            if info['landed']:
                 break
 
             # Decay epsilon
@@ -125,6 +109,8 @@ while not landed_bool:
         # Save the trained model
         torch.save(agent.model.state_dict(), "dqn_lander.pth")
 
+        training_done = True
+
 
     # -----------------------------------------
     # Replay Mode
@@ -136,6 +122,7 @@ while not landed_bool:
             env.set_rendering(True)  # always render in replay
             state = env.reset()
             done = False
+            total_reward = 0
 
             while not done:
                 for event in pygame.event.get():
@@ -155,16 +142,20 @@ while not landed_bool:
                         action = torch.argmax(q_values).item()
 
                 state, reward, done, info = env.step(action)
+                total_reward += reward
+
                 env.render(text_wait=True)
                 env.clock.tick(60)
 
             # Print outcome each attempt
-            if info['landed']:
-                print(f"LANDED ({info['landing_accuracy']:.2f}%), Fuel left: {state[4]:.2f}%")
+            if not info['landed'] and not info['crashed']:
+                print(f"FLYING, Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
+            elif info['landed']:
+                print(f"LANDED ({info['landing_accuracy']:.2f}%), Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
             elif info['crashed']:
-                print("CRASHED!")
-            else:
-                print("TIMEOUT!")
+                print(f"CRASHED, Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
+
+            print(f"Rwrd: {total_reward:.2f}, e: {agent.epsilon:.3f}")
 
 pygame.quit()
 
