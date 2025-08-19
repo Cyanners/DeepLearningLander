@@ -186,15 +186,32 @@ class LanderObj:
 
 
     def get_state(self):
+
+        # Normalize values for better learning
+        normalized_vx = self.vx / 10.0  # Normalize velocity
+        normalized_vy = self.vy / 10.0
+
+        # Normalize terrain range (assuming max reasonable height is 500)
+        normalized_terrain_range = self.terrain_range / 500.0
+
+        # Normalize pad distance
+        normalized_pad_dist_x = self.pad_dist_x / 400.0  # Half screen width
+
+        # Add fuel as state (normalized)
+        normalized_fuel = self.fuel / 100.0
+
+        # Add angle information (based on velocity)
+        angle = math.atan2(self.vy, self.vx) if self.vx != 0 else 0
+        normalized_angle = angle / math.pi
+
         return (
-            # self.x,
-            # self.y,
-            self.vx,
-            self.vy,
-            self.terrain_range,
-            self.above_pad,
-            self.pad_dist_x
-            # self.fuel
+            normalized_vx,
+            normalized_vy,
+            normalized_terrain_range,
+            float(self.above_pad),  # Boolean to float
+            normalized_pad_dist_x,
+            normalized_fuel,
+            normalized_angle
         )
 
 

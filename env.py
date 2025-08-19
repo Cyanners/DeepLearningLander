@@ -1,3 +1,5 @@
+import random
+
 import pygame
 import math
 from misc import LanderObj, generate_terrain, draw_terrain, draw_landing_pad
@@ -42,8 +44,9 @@ class LunarLanderEnv:
             self.screen = pygame.Surface((self.screen_x, self.screen_y))
 
 
-    def reset(self):
-        self.lander.reset(100, 100)
+    def reset(self, start_pos_x, start_pos_y):
+        # self.lander.reset(random.randint(50, 750), random.randint(50, 150))
+        self.lander.reset(start_pos_x, start_pos_y)
         self.start_time = pygame.time.get_ticks()
         self.elapsed_ms = 0
         return self.lander.get_state()
@@ -65,47 +68,91 @@ class LunarLanderEnv:
         # Calculate elapsed time
         self.elapsed_ms = pygame.time.get_ticks() - self.start_time
 
+        lander_pad_accuracy = None
+
+
+
         reward = 0
         done = False
 
-        lander_pad_accuracy = None
+        # Distance to pad
+        distance_to_pad = abs(self.landing_pad.centerx - self.lander.x)
+        max_distance = self.screen_x / 2
+        distance_factor = max(0, 1 - distance_to_pad / max_distance)
+        distance_reward = distance_factor * 1.5
+
+        # Velocity penalty (encourage slow, controlled movement)
+        v_total = math.sqrt(self.lander.vx ** 2 + self.lander.vy ** 2)
+        if v_total > 3.0:
+            velocity_penalty = -(v_total - 3.0) * 0.2  # Only penalize above threshold
+        else:
+            velocity_penalty = 0  # No penalty for reasonable speeds
+
+        # Height reward (encourage staying at reasonable altitude)
+        height_reward = -abs(self.lander.terrain_range - 50) * 0.01
 
         if self.lander.landed:
-            # CALCULATE WEIGHTED REWARD FROM TIME, FUEL, ACCURACY HERE
+            # Successful landing bonus
+            reward = 100.0
 
-            # Calculate distance to pad center for accuracy
+            # Accuracy bonus
+            effective_half_pad_width = (self.landing_pad.width - self.lander.size) / 2
+            accuracy = max(0, (effective_half_pad_width - distance_to_pad) / effective_half_pad_width)
+            reward += accuracy * 50
+
+            # Fuel efficiency bonus
+            fuel_bonus = (self.lander.fuel / 100.0) * 20
+            reward += fuel_bonus
+
+            # Velocity bonus (soft landing)
+            if v_total < 2.0:
+                reward += 20
+
             distance_to_pad_center = abs(self.landing_pad.centerx - self.lander.x)
             effective_half_pad_width = ((self.landing_pad.width - self.lander.size) / 2)
             lander_pad_accuracy = ((effective_half_pad_width - distance_to_pad_center) / effective_half_pad_width) * 100
 
-            reward = 10000.0
             done = True
+
         elif self.lander.crashed:
-            v_total = math.sqrt(self.lander.vx ** 2 + self.lander.vy ** 2)
-            reward = -self.lander.pad_dist / 100
-            if v_total > 1.0:
-                reward -= 10.0
+            reward = -30.0  # Crash penalty
 
-            if self.lander.above_pad:
-                reward += 100
-                if self.lander.vx > 2 or self.lander.vx < -2:
-                    reward -= 50
+            # Less penalty if crashed near the pad
+            if self.lander.above_pad or distance_to_pad < 50:
+                reward = -15.0
 
             done = True
+
         else:
-            # Shaping: small negative reward for fuel/time usage
-            reward -= 0.001
+            # Continuous rewards during flight
+            reward = distance_reward + velocity_penalty + height_reward
 
-            # Encourage being above pad and descending safely
             if self.lander.above_pad:
-                if 1.0 > self.lander.vx > -1.0 and 0 < self.lander.vy < 2:
-                    reward += 1
-                else:
-                    reward += 0.001
+                # Base reward for being above pad
+                reward += 0.5
 
-            v_total = math.sqrt(self.lander.vx ** 2 + self.lander.vy ** 2)
-            if v_total > 5.0:
-                reward -= 0.005
+                if self.lander.vy > 0:
+                    if 0.1 >= self.lander.vy > 0:  # Slow descent
+                        reward += 0.2  # Small reward for any descent
+                    elif 0.25 >= self.lander.vy > 0.1:
+                        reward += 0.5
+                    elif 0.5 >= self.lander.vy > 0.25:
+                        reward += 0.8
+                    elif 2.0 >= self.lander.vy > 0.5:
+                        reward += 1.5
+
+                    # Extra bonus for controlled descent
+                    if 0.8 <= self.lander.vy <= 2.0 and abs(self.lander.vx) < 1.0 and v_total < 2.0:
+                        reward += 1.5
+                else:
+                    reward -= 1.0
+
+            # Small fuel efficiency reward
+            reward -= 0.5  # Small constant penalty for time/fuel
+
+
+
+
 
         # Return info dictionary
         info = {

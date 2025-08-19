@@ -1,11 +1,14 @@
 import pygame
 import torch
 import random
+import numpy as np
+from torch import optim
 from env import LunarLanderEnv
 from dqn import DQNAgent
+from tqdm import tqdm, trange
 
 # Toggle between training and replay
-replay = False
+replay = True
 
 if replay:
     device = torch.device("cpu")
@@ -13,16 +16,17 @@ else:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-state_dim = 5 # vx, vy, terrain_range, above_pad, pad_dist_x
+state_dim = 7
 action_dim = 4 # none, up, left, right
 
-env = LunarLanderEnv(800, 600, 5)
+# env = LunarLanderEnv(800, 600, 5)
+env = LunarLanderEnv(800, 600, random.randint(1, 1000))
 
 agent = DQNAgent(device, state_dim, action_dim)
 
 if replay:
     # Load pre-trained weights
-    agent.model.load_state_dict(torch.load("dqn_lander.pth"))
+    agent.model.load_state_dict(torch.load("weights/dqn_lander_ep2808.pth"))
     agent.model.eval()  # put network in evaluation mode
 
 
@@ -35,12 +39,28 @@ while not training_done:
 
     if not replay:
 
-        num_episodes = 1000
-        max_steps = 3000
+        # Track performance
+        episode_rewards = []
+        success_rate = []
+        losses = []
 
+        num_episodes = 3000
+        max_steps = 2000
+
+        start_pos = (0, 0)
         agent.epsilon = 1.0
 
-        for episode in range(num_episodes):
+        # Learning rate scheduler
+        scheduler = optim.lr_scheduler.StepLR(agent.optimizer, step_size=500, gamma=0.8)
+
+        progress_bar = tqdm(range(num_episodes), desc="Episodes")
+
+        for episode in progress_bar:
+
+            # Vary terrain seed for better generalization
+            if episode % 100 == 0:
+                env = LunarLanderEnv(800, 600, random.randint(1, 1000))
+                start_pos = (random.randint(50, 750), random.randint(50, 150))
 
             # Show rendering only every 100 episodes
             if episode % 100 == 12345:
@@ -48,12 +68,13 @@ while not training_done:
             else:
                 env.set_rendering(False)
 
-            state = env.reset()
+            state = env.reset(start_pos[0], start_pos[1])
             done = False
             total_reward = 0
             steps = 0
+            episode_losses = []
 
-            while not done:
+            while not done and steps < max_steps:
 
                 # Events
                 for event in pygame.event.get():
@@ -68,49 +89,52 @@ while not training_done:
                 total_reward += reward
 
                 # Store transition
-                agent.memory.append((state, action, reward, next_state, float(done)))
+                agent.store_transition(state, action, reward, next_state, done)
 
-                # Train the agent
-                agent.train_step()
+                # Train the agent (multiple times per step for better sample efficiency)
+                if len(agent.memory) > agent.batch_size:
+                    for _ in range(2):  # Train multiple times per step
+                        loss = agent.train_step()
+                        if loss is not None:
+                            episode_losses.append(loss)
 
                 state = next_state
+                steps += 1
 
                 if episode % 100 == 12345:
                     env.render(text_wait=True)
                     env.clock.tick(60)
 
-                steps += 1
-                if steps == max_steps:
-                    done = True
-
             # Single episode done ---------------------------------------------------------------
 
-            # State: self.x, self.y, self.vx, self.vy, self.terrain_range, self.above_pad
-            # State: self.vx, self.vy, self.terrain_range, self.above_pad, self.pad_dist_x
-            print(f"Episode {episode + 1}:\t", end="")
-            if not info['landed'] and not info['crashed']:
-                print(f"FLYING, Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
-            elif info['landed']:
-                print(f"LANDED ({info['landing_accuracy']:.2f}%), Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
-            elif info['crashed']:
-                print(f"CRASHED, Fuel: {env.lander.fuel:.2f}%, {info['elapsed_ms']}ms, ", end="")
-
-            print(f"Rwrd: {total_reward:.2f}, e: {agent.epsilon:.3f}")
-
-            if info['landed']:
-                break
+            episode_rewards.append(total_reward)
+            if episode_losses:
+                losses.append(np.mean(episode_losses))
 
             # Decay epsilon
             if agent.epsilon > agent.epsilon_min:
                 agent.epsilon *= agent.epsilon_decay
 
+            scheduler.step()
 
-        # All episodes done -------------------------------------------------------------------
+            # Track success rate over last 100 episodes
+            if episode >= 100:
+                recent_episodes = episode_rewards[-100:]
+                success_count = sum(1 for r in recent_episodes if r > 50)  # Adjust threshold
+                success_rate.append(success_count / 100)
 
-        # Save the trained model
-        if info['landed']:
-            torch.save(agent.model.state_dict(), "dqn_lander.pth")
-            training_done = True
+            # Logging
+            if episode % 50 == 0:
+                avg_reward = np.mean(episode_rewards[-50:]) if len(episode_rewards) >= 50 else total_reward
+                avg_loss = np.mean(losses[-50:]) if len(losses) >= 50 else 0
+                current_success_rate = success_rate[-1] if success_rate else 0
+                # Update tqdm status line
+                progress_bar.set_description_str(f"Ep {episode} | R: {avg_reward:.1f} | SR: {current_success_rate:.2%} | ε: {agent.epsilon:.3f} | L: {avg_loss:.1f}")
+                print()
+
+            # Save model periodically and when performance improves
+            if success_rate and success_rate[-1] > 0.9:
+                torch.save(agent.model.state_dict(), f"weights/dqn_lander_ep{episode}.pth")
 
 
     # -----------------------------------------
@@ -120,8 +144,10 @@ while not training_done:
     else:
         print("Replaying with trained agent...")
         while True:
+            env = LunarLanderEnv(800, 600, random.randint(1, 1000))
             env.set_rendering(True)  # always render in replay
-            state = env.reset()
+            start_pos = (random.randint(50, 750), random.randint(50, 150))
+            state = env.reset(start_pos[0], start_pos[1])
             done = False
             total_reward = 0
 
@@ -131,7 +157,7 @@ while not training_done:
                         pygame.quit()
                         exit()
 
-                epsilon = 0.0  # exploration rate (10%)
+                epsilon = 0.02  # exploration rate
 
                 if random.random() < epsilon:
                     # Explore: random action
