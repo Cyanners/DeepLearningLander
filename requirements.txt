@@ -1,3 +1,5 @@
 pygame
 torch
 noise
+numpy
+tqdm
