@@ -81,7 +81,7 @@ class LanderObj:
             v_total = math.sqrt(self.vx ** 2 + self.vy ** 2)
 
             # Check if the collision was with the pad and impact speed was not excessive
-            if self.lander_left >= pad_x1 and self.lander_right <= pad_x2 and v_total < 1.0:
+            if self.lander_left >= pad_x1 and self.lander_right <= pad_x2 and v_total < 2.0:
                 self.y = (pad_y - self.size / 2) + 1 # Extra pixel to retrigger collision logic
                 self.vy = 0
                 # self.vx = 0 # No sliding

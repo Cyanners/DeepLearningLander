@@ -28,9 +28,7 @@ class LunarLanderEnv:
         self.terrain_mask = pygame.mask.from_surface(self.terrain_surface)
 
         self.action_space = 4  # 0: do nothing, 1: up, 2: left, 3: right
-        self.state_dim = 6     # [x, y, vx, vy, fuel, distance_to_pad_center]
 
-        #self.lander = LanderObj(40, 100, 100, 0.035, 0.025)
         self.lander = LanderObj(40, 100, 100, 0.35, 0.25)
         self.start_time = pygame.time.get_ticks()
         self.elapsed_ms = 0
@@ -84,9 +82,9 @@ class LunarLanderEnv:
             done = True
         elif self.lander.crashed:
             v_total = math.sqrt(self.lander.vx ** 2 + self.lander.vy ** 2)
-            reward = - self.lander.pad_dist / 100
-            #if v_total > 1.0:
-            #    reward -= 10.0
+            reward = -self.lander.pad_dist / 100
+            if v_total > 1.0:
+                reward -= 10.0
 
             if self.lander.above_pad:
                 reward += 100
@@ -96,18 +94,18 @@ class LunarLanderEnv:
             done = True
         else:
             # Shaping: small negative reward for fuel/time usage
-            # reward -= 0.00025
+            reward -= 0.001
 
-            # Encourage being above pad
+            # Encourage being above pad and descending safely
             if self.lander.above_pad:
-                if 0.5 > self.lander.vx > -0.5 and 0 < self.lander.vy < 1:
-                    reward += 10
+                if 1.0 > self.lander.vx > -1.0 and 0 < self.lander.vy < 2:
+                    reward += 1
                 else:
-                    reward += 0.01
+                    reward += 0.001
 
             v_total = math.sqrt(self.lander.vx ** 2 + self.lander.vy ** 2)
             if v_total > 5.0:
-                reward -= 0.02
+                reward -= 0.005
 
         # Return info dictionary
         info = {

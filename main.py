@@ -4,20 +4,21 @@ import random
 from env import LunarLanderEnv
 from dqn import DQNAgent
 
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-
 # Toggle between training and replay
 replay = False
 
-env = LunarLanderEnv(800, 600, 5)
+if replay:
+    device = torch.device("cpu")
+else:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
-# state_dim = 6 # x, y, vx, vy, terrain_range, above_pad
 state_dim = 5 # vx, vy, terrain_range, above_pad, pad_dist_x
 action_dim = 4 # none, up, left, right
 
-agent = DQNAgent(state_dim, action_dim)
+env = LunarLanderEnv(800, 600, 5)
+
+agent = DQNAgent(device, state_dim, action_dim)
 
 if replay:
     # Load pre-trained weights
@@ -34,7 +35,7 @@ while not training_done:
 
     if not replay:
 
-        num_episodes = 2000
+        num_episodes = 1000
         max_steps = 3000
 
         agent.epsilon = 1.0
@@ -107,9 +108,9 @@ while not training_done:
         # All episodes done -------------------------------------------------------------------
 
         # Save the trained model
-        torch.save(agent.model.state_dict(), "dqn_lander.pth")
-
-        training_done = True
+        if info['landed']:
+            torch.save(agent.model.state_dict(), "dqn_lander.pth")
+            training_done = True
 
 
     # -----------------------------------------
